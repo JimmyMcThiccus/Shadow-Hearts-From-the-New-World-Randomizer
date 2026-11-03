@@ -42,9 +42,13 @@ TABLES = {
     11: (b"KEYI", 0x0C, 0x04),
 }
 BAD_NAMES = {"", "Unknown", "?", "x"}
+# Placeholder rows, by id: blank in the US data, but SH3RDAT.JPN names some of them.  Item ids are the same in
+# every region (the record tables line up row for row; checked against US, Europe and Japan).
+INVALID_IDS = {2: {50}, 4: {67, 68}}
 THERA_LEAF = (1, 0)
 
 MON_SIZE = 0x44
+MON_ROWS = 264      # US / European MON_ rows; SH3RDAT.JPN appends 46 unused dummies (no monster set uses them)
 SET_SIZE = 0x20                                     # u16 id, u16 formation, s16 monsters[6], 12 bytes, u32 flags
 
 
@@ -53,7 +57,8 @@ class RegFile:
 
     def __init__(self, data):
         n, total = struct.unpack_from("<II", data, 0)
-        assert total == len(data), "unexpected container size"
+        # the European SH3RDAT.NA has one byte past the declared size; it is kept as it is
+        assert total <= len(data) <= total + 16, "unexpected container size"
         self.raw = bytearray(data)
         self.tags = [bytes(data[8 + 8 * i:12 + 8 * i]) for i in range(n)]
         offs = [struct.unpack_from("<I", data, 12 + 8 * i)[0] for i in range(n)] + [total]
@@ -127,7 +132,7 @@ class GameData:
         self._read_tables()
         self.mon_names = self.dat.names(b"MON_")
         self.mon_off, n = self.dat.section(b"MON_", 1)
-        self.monsters = [Monster(self, i) for i in range(n // MON_SIZE)]
+        self.monsters = [Monster(self, i) for i in range(min(n // MON_SIZE, MON_ROWS))]
         self.set_off, n = self.dat.section(b"MON_", 2)
         self.sets = [list(struct.unpack_from("<HH6h", self.dat.raw, self.set_off + i * SET_SIZE))
                      for i in range(n // SET_SIZE)]
@@ -166,7 +171,8 @@ class GameData:
     def item_valid(self, it):
         kind, i = it
         recs = self.records.get(kind)
-        return bool(recs) and 0 <= i < len(recs) and recs[i][0] not in BAD_NAMES
+        return (bool(recs) and 0 <= i < len(recs) and recs[i][0] not in BAD_NAMES
+                and i not in INVALID_IDS.get(kind, ()))
 
     def item_price(self, it):
         kind, i = it

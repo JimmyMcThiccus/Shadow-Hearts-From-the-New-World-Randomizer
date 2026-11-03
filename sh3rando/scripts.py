@@ -243,6 +243,30 @@ def gifts(script):
     return out
 
 
+# The same event in variant maps (one gift, several copies of the map script): (script, n) -> the first copy,
+# where n is the gift's position in that script's gifts() list.  Taken from the US scripts, where the copies sit
+# at the same code address; the Japanese scripts place them at different addresses but list the same gifts in
+# the same order, so the event is matched by position instead.
+GIFT_LINKS = {
+    ("AC_08_U", 0): ("AC_01_U", 0), ("GS_01_U", 0): ("AC_01_U", 0), ("GS_02_U", 0): ("AC_01_U", 0),
+    ("GS_03_U", 0): ("AC_01_U", 0), ("GS_05_U", 0): ("AC_01_U", 0),
+    ("CA_03_U", 0): ("AC_03_U", 0), ("CA_03_U", 1): ("AC_03_U", 1), ("CA_03_U", 2): ("AC_03_U", 2),
+    ("CA_03_U", 3): ("AC_03_U", 3),
+    ("AI_13_U", 0): ("AI_11_U", 0),
+    ("CZ_02_U", 0): ("CZ_00_U", 0), ("CZ_03_U", 0): ("CZ_00_U", 0), ("CZ_04_U", 0): ("CZ_00_U", 0),
+    ("CZ_05_U", 0): ("CZ_00_U", 0),
+    ("GC_04_U", 0): ("CZ_06_U", 0), ("GC_07_U", 0): ("CZ_06_U", 0),
+    ("GK_01_U", 0): ("GK_00_U", 0), ("GK_02_U", 0): ("GK_00_U", 0), ("GK_03_U", 0): ("GK_00_U", 0),
+    ("UE_07_U", 0): ("UE_06_U", 0),
+}
+
+
+def gift_event(gift, n):
+    """Key shared by every copy of the same gift event: (code, first copy's (script, position))."""
+    me = (gift.script.name, n)
+    return gift.code, GIFT_LINKS.get(me, me)
+
+
 def _call_args(script, k, n):
     """The n arguments of the call at script.order[k]: ("imm", value), ("par", index) for `op19 off; op24`
     (the caller's own parameter off / 4) or None for anything else."""

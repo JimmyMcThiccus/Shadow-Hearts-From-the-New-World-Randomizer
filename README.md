@@ -1,12 +1,22 @@
 # Shadow Hearts: From the New World Randomizer
 
-Randomizes Shadow Hearts: From the New World (USA, SLUS-213.26) and writes a new disc image plus a spoiler
-log. The clean image is only read, never changed.
+Randomizes Shadow Hearts: From the New World and writes a new disc image plus a spoiler log. The clean image
+is only read, never changed.
+
+| Release | Disc | Notes |
+|---|---|---|
+| USA | SLUS-213.26 | |
+| Europe, Australia | SLES-547.11 | |
+| Japan | SLPM-660.71 | |
+| Japan (Premium Box) | SLPM-660.70 | |
+
+The release is detected from the image. All four share the item and monster numbering, so the same settings
+code makes the same choices on each (the spoiler lists names in that release's language).
 
 ## Run
 
 Download `ShadowHeartsFromTheNewWorldRandomizer.exe` from the Releases page and run it. You need your own
-Shadow Hearts: From the New World (USA) disc image; settings are saved in `settings.json` beside the exe.
+disc image of one of the releases above; settings are saved in `settings.json` beside the exe.
 
 From source:
 

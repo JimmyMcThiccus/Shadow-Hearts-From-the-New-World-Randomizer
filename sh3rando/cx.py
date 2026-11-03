@@ -32,10 +32,13 @@ def _scramble(b):
     return (int.from_bytes(b, "little") ^ int.from_bytes(_KEY[:n], "little")).to_bytes(n, "little")
 
 
-def decompress(data):
+def decompress(data, limit=None):
+    """The unpacked file, or with limit only its first `limit` bytes (decoding stops after that chunk)."""
     if not is_cx(data):
         raise ValueError("not a plain cx stream")
     want = struct.unpack_from("<I", data, 4)[0]
+    if limit is not None:
+        want = min(want, limit)
     out = bytearray()
     pos = 8
     while len(out) < want:

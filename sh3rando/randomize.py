@@ -1,4 +1,10 @@
-"""Seeded randomization of the Shadow Hearts: From the New World (USA) disc.
+"""Seeded randomization of a Shadow Hearts: From the New World disc (USA, Europe, Japan, Japan Premium Box).
+
+The regions share FIELD/FIELD.DAT, the _SHOP.DAT layout, the map scripts' GetItem library, the inventory kind
+numbering (FIELD.CPX RDnumTbl and the executable's kind table) and the item ids (the SH3RDAT record tables
+line up row for row).  They differ in the register file the executable loads: "common/sh3rdat.na" in
+SLUS_213.26 and SLES_547.11, "common/sh3rdat.jpn" in SLPM_660.71 and SLPM_660.70.  A seed therefore makes the
+same choices on every region's disc; only the names in the spoiler log differ.
 
 Each category draws from its own RNG (seed + category name), so switching one category on or off never
 changes what another produces.  Key items and the other one-off bit-set kinds (inspirations, totem statues),
@@ -20,12 +26,17 @@ from . import scripts as S
 from .disc import Disc, copy_image
 
 VERSION = 1
-SLUS = "SLUS_213.26"
+REGIONS = {"US": "USA", "EU": "Europe, Australia", "JP": "Japan", "JP-PB": "Japan (Premium Box)"}
+EXES = {"SLUS_213.26": "US", "SLES_547.11": "EU", "SLPM_660.71": "JP", "SLPM_660.70": "JP-PB"}
+REG_FILES = {"US": "COMMON/SH3RDAT.NA", "EU": "COMMON/SH3RDAT.NA",           # what each executable loads
+             "JP": "COMMON/SH3RDAT.JPN", "JP-PB": "COMMON/SH3RDAT.JPN"}
 ONE_OFF = (G.KIND_MAGIC, G.KIND_CHART)  # trade places among their own slots, never drawn at random
 STACKABLE = (1, 7)                      # items and ring items keep a chest's count; the rest are 1
-# Never moved (besides the items scripts check, found in the scripts themselves)
-KEEP_NAMES = re.compile(r"^(Lottery Ticket|Ring Fragment|Third Key|Fifth Key|Seventh Key|Eternal Key)$")
-RDAT, FDAT, SHOP = "COMMON/SH3RDAT.NA", "FIELD/FIELD.DAT", "FIELD/SHOP/_SHOP.DAT"
+# Never moved (besides the items scripts check, found in the scripts themselves): the Third, Fifth, Seventh and
+# Eternal Keys, the Ring Fragment and Lottery Tickets
+KEEP_IDS = {(1, 26), (1, 27), (1, 28), (1, 29), (1, 34), (1, 35)}
+FDAT, SHOP = "FIELD/FIELD.DAT", "FIELD/SHOP/_SHOP.DAT"
+RDAT = REG_FILES["US"]
 
 
 @dataclasses.dataclass
@@ -144,7 +155,9 @@ class Randomizer:
 
     # -- reading -------------------------------------------------------------------------------------
     def load(self, disc):
-        self.gd = G.GameData(disc.read(RDAT), disc.read(FDAT), disc.read(SHOP))
+        self.region = region_of(disc)
+        self.rdat = REG_FILES[self.region]
+        self.gd = G.GameData(disc.read(self.rdat), disc.read(FDAT), disc.read(SHOP))
         paths = sorted(x for x in disc.files if x.startswith("FIELD/MPS/") and x.endswith(".MSC"))
         self.scripts = []
         for n, p in enumerate(paths):
@@ -155,14 +168,11 @@ class Randomizer:
             maps = sorted(x for x in disc.files if x.startswith("FIELD/MPS/") and x.endswith(".MPS"))
             for n, p in enumerate(maps):
                 self.progress(0.01 + 0.01 * n / len(maps), "Reading the maps")
-                raw = disc.read(p)
-                data = cx.decompress(raw) if cx.is_cx(raw) else raw
-                for st, _w in map_encounters(data):
+                for st, _w in map_encounters(_map_prefix(disc, p)):
                     self.encounter_maps[st].add(p.rsplit("/", 1)[-1][:-4])
         gd = self.gd
-        self.fixed = {it for it in S.quest_items([s.msc for s in self.scripts]) if it[0] in G.KINDS} | {
-            (k, i) for k in G.KINDS for i, (nm, _p) in enumerate(gd.records[k]) if KEEP_NAMES.match(nm)}
-        self.originals = {RDAT: gd.dat.bytes(), FDAT: bytes(gd.fdat), SHOP: bytes(gd.sdat)}
+        self.fixed = {it for it in S.quest_items([s.msc for s in self.scripts]) if it[0] in G.KINDS} | KEEP_IDS
+        self.originals = {self.rdat: gd.dat.bytes(), FDAT: bytes(gd.fdat), SHOP: bytes(gd.sdat)}
 
     def movable(self, it):
         return it is not None and it[0] in G.KINDS and self.gd.item_valid(it) and it not in self.fixed
@@ -233,12 +243,12 @@ class Randomizer:
             else:
                 kept.append("chest %3d  %-22s %s" % (i, gd.item_name(it), maps))
         if self.s.gifts:
-            groups = collections.OrderedDict()                   # (code, ip): the same event in variant maps
+            groups = collections.OrderedDict()                   # the same event in variant maps
             for sc in self.scripts:
-                for g in S.gifts(sc.msc):
-                    groups.setdefault((g.code, g.ip), []).append(g)
-            for (code, ip), gs in groups.items():
-                it = gs[0].item
+                for n, g in enumerate(S.gifts(sc.msc)):
+                    groups.setdefault(S.gift_event(g, n), []).append(g)
+            for gs in groups.values():
+                it, ip = gs[0].item, gs[0].ip
                 maps = " ".join(sorted({g.script.name for g in gs}))
                 if self.movable(it):
                     slots.append(Slot(it, "gift %05x %s" % (ip, maps), ("gifts", gs)))
@@ -363,7 +373,7 @@ class Randomizer:
 
     def _tables(self):
         gd = self.gd
-        now = {RDAT: gd.dat.bytes(), FDAT: bytes(gd.fdat), SHOP: bytes(gd.sdat)}
+        now = {self.rdat: gd.dat.bytes(), FDAT: bytes(gd.fdat), SHOP: bytes(gd.sdat)}
         return {p: b for p, b in now.items() if b != self.originals[p]}
 
     def changed_paths(self):
@@ -398,7 +408,7 @@ class Randomizer:
         try:
             for p, data in files.items():
                 if d.read(p) != self.original(p):
-                    raise ValueError("%s on the image is not the one the randomizer read; use a clean US image" % p)
+                    raise ValueError("%s on the image is not the one the randomizer read; use a clean image" % p)
                 d.write(p, data)
             d.commit()
         finally:
@@ -406,8 +416,8 @@ class Randomizer:
         self.progress(0.97, "Checking the disc image")
         self.verify(out, files)
         self.progress(1.0, "Done")
-        header = "Shadow Hearts: From the New World Randomizer\nCode: %s\nFiles changed: %s\n" % (
-            s.to_code(), ", ".join(sorted(files)) or "none")
+        header = "Shadow Hearts: From the New World Randomizer\nDisc: %s\nCode: %s\nFiles changed: %s\n" % (
+            REGIONS[self.region], s.to_code(), ", ".join(sorted(files)) or "none")
         return self.log.text(header)
 
     @staticmethod
@@ -423,31 +433,91 @@ class Randomizer:
             d.close()
 
 
-def map_encounters(data):
-    """Random-encounter monster sets of one (unpacked) map file, as [(set, weight %)].  SBD container (Sh2
-    Decomp notes/G/mps_format.md): +0x1c LINKHDR offset; LINKHDR +8 chunk count, +0xc first entry; 16-byte
-    entries whose +0xc is the chunk header's offset from the entry; chunk header = tag[8], record count, data
-    offset.  MONSET records: {u16 set, u8 weight%, u8}."""
-    if data[:4] != b"SBD ":
+MAP_HEAD = 0x20000            # packed bytes read first; enough for the unpacked chunk table and MONSET of every map
+
+
+def _map_prefix(disc, path):
+    """prefix(n) for map_encounters: unpacks from the first MAP_HEAD packed bytes, and reads the whole file only
+    when those run out."""
+    head = disc.read_part(path, 0, MAP_HEAD)
+    state = {"raw": head, "whole": len(head) >= disc.files[path].size}
+
+    def prefix(n):
+        while True:
+            raw = state["raw"]
+            if not cx.is_cx(raw):
+                if state["whole"] or len(raw) >= n:
+                    return raw
+            else:
+                try:
+                    return cx.decompress(raw, n)
+                except (IndexError, struct.error):
+                    if state["whole"]:
+                        raise
+            state["raw"], state["whole"] = disc.read(path), True
+    return prefix
+
+
+def map_encounters(prefix):
+    """Random-encounter monster sets of one map file, as [(set, weight %)].  prefix(n) returns at least the
+    first n bytes of the unpacked file (or all of it): the chunk table and MONSET sit in its first few KB, so
+    only that much needs unpacking.  SBD container (Sh2 Decomp notes/G/mps_format.md): +0x1c LINKHDR offset;
+    LINKHDR +8 chunk count, +0xc first entry; 16-byte entries whose +0xc is the chunk header's offset from the
+    entry; chunk header = tag[8], record count, data offset.  MONSET records: {u16 set, u8 weight%, u8}."""
+    data = prefix(0x8000)
+
+    def need(end):
+        nonlocal data
+        if end > len(data):
+            data = prefix(end)
+        return end <= len(data)
+
+    if data[:4] != b"SBD " or not need(0x20):
         return []
     lh = struct.unpack_from("<I", data, 0x1C)[0]
+    if not need(lh + 0x10):
+        return []
     n, first = struct.unpack_from("<II", data, lh + 8)
+    if not need(lh + first + 16 * n):
+        return []
     out = []
     for i in range(n):
         e = lh + first + 16 * i
         h = e + struct.unpack_from("<I", data, e + 12)[0]
-        if data[h:h + 8].rstrip(b" \0") == b"MONSET":
+        if need(h + 0x10) and data[h:h + 8].rstrip(b" \0") == b"MONSET":
             cnt, do = struct.unpack_from("<II", data, h + 8)
-            out += [struct.unpack_from("<HB", data, h + do + 4 * k) for k in range(cnt)]
+            if need(h + do + 4 * cnt):
+                out += [struct.unpack_from("<HB", data, h + do + 4 * k) for k in range(cnt)]
     return out
 
 
+def region_of(disc):
+    region = EXES.get(disc.exe)
+    if region is None or REG_FILES[region] not in disc.files:
+        raise ValueError("%s is not a Shadow Hearts: From the New World disc this randomizer knows (%s)" % (
+            disc.path, disc.exe or "no boot executable"))
+    return region
+
+
 def identify(path):
-    """Raise ValueError unless path is a clean-looking US image."""
+    """(region key, 0) for a From the New World image (one disc), else ValueError."""
     d = Disc(path)
     try:
-        ok = d.slus == SLUS
+        return region_of(d), 0
     finally:
         d.close()
-    if not ok:
-        raise ValueError("%s is not a Shadow Hearts: From the New World (USA) disc" % path)
+
+
+def safe_seed(seed):
+    return "".join(ch for ch in seed if ch.isalnum() or ch in "-_") or "seed"
+
+
+FILE_TAGS = {"US": "(USA)", "EU": "(Europe, Australia)", "JP": "(Japan)", "JP-PB": "(Japan) (Premium Box)"}
+
+
+def out_name(region, disc, seed):
+    return "Shadow Hearts - From the New World %s [Rando %s].iso" % (FILE_TAGS[region], safe_seed(seed))
+
+
+def spoiler_name(region, seed):
+    return "Shadow Hearts - From the New World %s [Rando %s] spoiler.txt" % (FILE_TAGS[region], safe_seed(seed))

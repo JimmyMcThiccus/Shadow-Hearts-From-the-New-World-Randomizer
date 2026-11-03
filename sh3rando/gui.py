@@ -13,8 +13,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, 
                                QPlainTextEdit, QProgressBar, QPushButton, QSpinBox, QTabWidget, QVBoxLayout,
                                QWidget)
 
-from .cli import out_name, spoiler_name
-from .randomize import Randomizer, Settings, identify
+from .randomize import REGIONS, Randomizer, Settings, identify, out_name, spoiler_name
 
 # settings.json sits beside the exe when frozen by PyInstaller, else at the repo root
 HERE = (os.path.dirname(sys.executable) if getattr(sys, "frozen", False)
@@ -96,21 +95,39 @@ class Window(QMainWindow):
         g = QGridLayout(box)
         saved = self.cfg.get("iso")
         self.iso = QLineEdit(saved if saved is not None else (DEFAULT_ISO if os.path.isfile(DEFAULT_ISO) else ""))
-        self.iso.setPlaceholderText("Clean Shadow Hearts: From the New World (USA) image (.iso)")
+        self.iso.setPlaceholderText("Clean Shadow Hearts: From the New World image (.iso): USA, Europe or Japan")
+        self.region = QLabel()
+        self.region.setStyleSheet("color: gray")
+        self.iso.textChanged.connect(self._detect)
         self.outdir = QLineEdit(self.cfg.get("outdir") or DEFAULT_OUT)
         self.outdir.setPlaceholderText("Folder for the randomized image")
         self.pcsx2 = QLineEdit(self.cfg.get("pcsx2", DEFAULT_PCSX2 if os.path.exists(DEFAULT_PCSX2) else ""))
         self.pcsx2.setPlaceholderText("pcsx2-qt.exe (optional, for Launch)")
-        for row, (label, edit, pick) in enumerate((
-                ("Disc image", self.iso, lambda: self._pick_file(self.iso, "Disc images (*.iso)")),
+        rows = (("Disc image", self.iso, lambda: self._pick_file(self.iso, "Disc images (*.iso)")),
+                ("", self.region, None),
                 ("Output folder", self.outdir, lambda: self._pick_dir(self.outdir)),
-                ("PCSX2", self.pcsx2, lambda: self._pick_file(self.pcsx2, "Programs (*.exe)")))):
+                ("PCSX2", self.pcsx2, lambda: self._pick_file(self.pcsx2, "Programs (*.exe)")))
+        for row, (label, edit, pick) in enumerate(rows):
             g.addWidget(QLabel(label), row, 0)
             g.addWidget(edit, row, 1)
-            b = QPushButton("Browse")
-            b.clicked.connect(pick)
-            g.addWidget(b, row, 2)
+            if pick:
+                b = QPushButton("Browse")
+                b.clicked.connect(pick)
+                g.addWidget(b, row, 2)
+        self._detect()
         return box
+
+    def _detect(self, *_):
+        """Show which release the chosen image is."""
+        src = self.iso.text().strip()
+        if not os.path.isfile(src):
+            self.region.setText("")
+            return
+        try:
+            region, _ = identify(src)
+            self.region.setText("Detected: " + REGIONS[region])
+        except (OSError, ValueError) as err:
+            self.region.setText(str(err))
 
     def _seed_box(self):
         box = QGroupBox("Seed")
@@ -315,10 +332,10 @@ class Window(QMainWindow):
     def _generate(self):
         src = self.iso.text().strip()
         if not src:
-            QMessageBox.warning(self, "Disc", "Choose the clean Shadow Hearts: From the New World (USA) image first.")
+            QMessageBox.warning(self, "Disc", "Choose a clean Shadow Hearts: From the New World image first.")
             return
         try:
-            identify(src)
+            region, _ = identify(src)
         except (OSError, ValueError) as err:
             QMessageBox.warning(self, "Disc", str(err))
             return
@@ -327,7 +344,7 @@ class Window(QMainWindow):
             s.seed = self._new_seed()
             self.seed.setText(s.seed)
         outdir = self.outdir.text().strip() or DEFAULT_OUT
-        out = os.path.join(outdir, out_name(s.seed))
+        out = os.path.join(outdir, out_name(region, 0, s.seed))
         if os.path.normcase(os.path.abspath(out)) == os.path.normcase(os.path.abspath(src)):
             QMessageBox.warning(self, "Output", "The output would overwrite the clean image.")
             return
@@ -336,7 +353,7 @@ class Window(QMainWindow):
         self.launch.setEnabled(False)
         self.open.setEnabled(False)
         self.thread = QThread()
-        self.worker = Worker(src, out, os.path.join(outdir, spoiler_name(s.seed)), s)
+        self.worker = Worker(src, out, os.path.join(outdir, spoiler_name(region, s.seed)), s)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.progress.connect(self._progress)

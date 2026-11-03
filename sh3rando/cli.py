@@ -1,4 +1,7 @@
-"""Command line: python -m sh3rando.cli <clean image.iso> [--out DIR] [--code SH3-...] [--seed S] [--dry-run]"""
+"""Command line: python -m sh3rando.cli <clean image.iso> [--out DIR] [--code SH3-...] [--seed S] [--dry-run]
+
+The image may be the USA, European, Japanese or Japanese Premium Box release; the region is detected from it.
+"""
 import argparse
 import os
 import random
@@ -8,21 +11,9 @@ from . import randomize as R
 from .disc import Disc
 
 
-def safe_seed(seed):
-    return "".join(ch for ch in seed if ch.isalnum() or ch in "-_") or "seed"
-
-
-def out_name(seed):
-    return "Shadow Hearts - From the New World (USA) [Rando %s].iso" % safe_seed(seed)
-
-
-def spoiler_name(seed):
-    return "Shadow Hearts - From the New World (USA) [Rando %s] spoiler.txt" % safe_seed(seed)
-
-
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Shadow Hearts: From the New World (USA) randomizer")
-    ap.add_argument("iso", help="clean Shadow Hearts: From the New World (USA) disc image")
+    ap = argparse.ArgumentParser(description="Shadow Hearts: From the New World randomizer")
+    ap.add_argument("iso", help="clean Shadow Hearts: From the New World disc image (USA, Europe or Japan)")
     ap.add_argument("--out", default=".", help="folder for the randomized image and the spoiler log")
     ap.add_argument("--code", help="settings code from the GUI or a spoiler log")
     ap.add_argument("--seed", help="seed (default: random)")
@@ -33,7 +24,8 @@ def main(argv=None):
         s.seed = a.seed
     if not s.seed:
         s.seed = "%08d" % random.randrange(10 ** 8)
-    R.identify(a.iso)
+    region, _ = R.identify(a.iso)
+    print("disc:", R.REGIONS[region])
     os.makedirs(a.out, exist_ok=True)
     last = [None]
 
@@ -51,16 +43,16 @@ def main(argv=None):
         finally:
             d.close()
         rz.randomize()
-        log = rz.log.text("Shadow Hearts: From the New World Randomizer (dry run)\nCode: %s\nFiles changed: %s\n" % (
-            s.to_code(), ", ".join(rz.changed_paths()) or "none"))
+        log = rz.log.text("Shadow Hearts: From the New World Randomizer (dry run)\nDisc: %s\nCode: %s\n"
+                          "Files changed: %s\n" % (R.REGIONS[region], s.to_code(), ", ".join(rz.changed_paths()) or "none"))
         out = None
     else:
-        out = os.path.join(a.out, out_name(s.seed))
+        out = os.path.join(a.out, R.out_name(region, 0, s.seed))
         if os.path.normcase(os.path.abspath(out)) == os.path.normcase(os.path.abspath(a.iso)):
             sys.exit("the output would overwrite the clean image")
         log = rz.run(a.iso, out)
         print()
-    spoiler = os.path.join(a.out, spoiler_name(s.seed))
+    spoiler = os.path.join(a.out, R.spoiler_name(region, s.seed))
     with open(spoiler, "w", encoding="utf-8") as f:
         f.write(log)
     print("\nwrote", ", ".join(([out] if out else []) + [spoiler]))

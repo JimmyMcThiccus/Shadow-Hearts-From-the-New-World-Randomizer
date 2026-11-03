@@ -1,4 +1,4 @@
-"""Shadow Hearts: From the New World (USA) disc access: ISO9660 root directory, PKFINFO.TBL and in-place patching.
+"""Shadow Hearts: From the New World disc access: ISO9660 root directory, PKFINFO.TBL and in-place patching.
 
 Same as the Shadow Hearts: Covenant randomizer's disc.py (FtNW keeps Covenant's PKFINFO.TBL layout); some
 members are cx-compressed, see cx.py.
@@ -9,6 +9,7 @@ child list).  FileIOLib::InitPkb replaces each root entry's offset with the disc
 root files (FIELD.CPX, BATTLE.CPX, OPENING.CPX) are read straight from the ISO directory.
 """
 import os
+import re
 import shutil
 import struct
 
@@ -60,9 +61,9 @@ class Disc:
         self.f.close()
 
     @property
-    def slus(self):
-        """SLUS_213.26 for the US disc, None for anything else."""
-        return "SLUS_213.26" if "SLUS_213.26" in self.root else None
+    def exe(self):
+        """The boot executable in the root directory (SLUS_213.26, SLES_547.11, SLPM_660.71 ...), else None."""
+        return next((n for n in sorted(self.root) if re.fullmatch(r"S[CL][EKPU][MS]_\d{3}\.\d{2}", n)), None)
 
     # --- ISO9660 ---------------------------------------------------------------------------------
     def _read_root(self):
